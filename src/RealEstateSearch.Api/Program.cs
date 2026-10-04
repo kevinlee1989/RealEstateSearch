@@ -27,7 +27,7 @@ using (var scope = app.Services.CreateScope())
 
     var csvPath = Path.Combine(
         builder.Environment.ContentRootPath,
-        "Data",
+        "SeedData",
         "listings.csv"
     );
 

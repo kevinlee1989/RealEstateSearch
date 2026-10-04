@@ -35,22 +35,33 @@ public class CsvListingImporter
         using var csv = new CsvReader(reader, config);
 
         var listings = new List<Listing>();
+        var skipped = 0;
 
         await csv.ReadAsync();
         csv.ReadHeader();
 
-        while (await csv.ReadAsync() && listings.Count < 1000)
+        while (await csv.ReadAsync() && listings.Count < 3000)
         {
-            var listing = new Listing
+            
+            var id = ParseLong(csv.GetField("id"));
+            var latitude = ParseDouble(csv.GetField("latitude"));
+            var longitude = ParseDouble(csv.GetField("longitude"));
+
+            if (id is null || latitude is null || longitude is null)
             {
-                Id = ParseLong(csv.GetField("id")),
+                skipped++;
+                continue;
+            }
+            var listing = new Listing 
+            {
+                Id = id.Value,
 
                 Name = csv.GetField("name") ?? string.Empty,
                 Description = csv.GetField("description"),
                 Neighbourhood = csv.GetField("neighbourhood_cleansed"),
 
-                Latitude = ParseDouble(csv.GetField("latitude")) ?? 0,
-                Longitude = ParseDouble(csv.GetField("longitude")) ?? 0,
+                Latitude = latitude.Value,
+                Longitude = longitude.Value,
 
                 PropertyType = csv.GetField("property_type"),
                 RoomType = csv.GetField("room_type"),
@@ -69,11 +80,7 @@ public class CsvListingImporter
                     ParseDouble(csv.GetField("review_scores_rating")),
 
                 LastScraped =
-                    ParseDate(csv.GetField("last_scraped")),
-
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-                IsDeleted = false
+                    ParseDate(csv.GetField("last_scraped"))
             };
 
             listings.Add(listing);
@@ -81,28 +88,17 @@ public class CsvListingImporter
 
         _context.Listings.AddRange(listings);
         await _context.SaveChangesAsync();
+        Console.WriteLine($"Imported {listings.Count}, skipped {skipped}");
+
     }
 
-    // Id has scientific notation 
-    // try long and if not try double --> long 
-    private static long ParseLong(string? value)
+
+    private static long? ParseLong(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-            return 0;
+        if (long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var result))
+            return result;
 
-        if (long.TryParse(value, out var direct))
-            return direct;
-
-        if (double.TryParse(
-            value,
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out var scientific))
-        {
-            return Convert.ToInt64(scientific);
-        }
-
-        return 0;
+        return null;
     }
 
     private static int? ParseInt(string? value)
@@ -151,9 +147,17 @@ public class CsvListingImporter
 
     private static DateTime? ParseDate(string? value)
     {
-        if (DateTime.TryParse(value, out var result))
-            return result;
+        if (DateTime.TryParseExact(
+            value,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var result))
+        {
+            return DateTime.SpecifyKind(result, DateTimeKind.Utc);
+        }
 
         return null;
     }
+
 }
