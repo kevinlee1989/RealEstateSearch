@@ -7,9 +7,41 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  elasticsearch:
+    image: elasticsearch:9.5.3
+    container_name: realestate-elasticsearch
+    environment:
+      # One node is enough locally; skips cluster discovery and production bootstrap checks
+      discovery.type: single-node
+      # Local dev only: no TLS or passwords. Port is bound to localhost below to compensate
+      xpack.security.enabled: "false"
+      # Cap the JVM heap so ES doesn't claim half of Docker's memory
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  kibana:
+    image: kibana:9.5.3
+    container_name: realestate-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "127.0.0.1:5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
 volumes:
   postgres_data:
+  es_data:
