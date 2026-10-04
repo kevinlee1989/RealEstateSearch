@@ -1,4 +1,4 @@
-namespace RealEstateSearch.Api.Models;
+namespace RealEstateSearch.Data.Models;
 
 public class Listing
 {

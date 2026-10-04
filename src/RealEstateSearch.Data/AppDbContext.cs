@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using RealEstateSearch.Api.Models;
+using RealEstateSearch.Data.Models;
 
-namespace RealEstateSearch.Api.Data;
+namespace RealEstateSearch.Data;
 
 public class AppDbContext : DbContext
 {

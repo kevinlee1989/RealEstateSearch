@@ -3,7 +3,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace RealEstateSearch.Api.Migrations
+namespace RealEstateSearch.Data.Migrations
 {
     /// <inheritdoc />
     public partial class ListingIdNotGenerated : Migration

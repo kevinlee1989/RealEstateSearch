@@ -5,11 +5,11 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-using RealEstateSearch.Api.Data;
+using RealEstateSearch.Data;
 
 #nullable disable
 
-namespace RealEstateSearch.Api.Migrations
+namespace RealEstateSearch.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
     [Migration("20261004195350_ListingIdNotGenerated")]
@@ -25,7 +25,7 @@ namespace RealEstateSearch.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("RealEstateSearch.Api.Models.Listing", b =>
+            modelBuilder.Entity("RealEstateSearch.Data.Models.Listing", b =>
                 {
                     b.Property<long>("Id")
                         .HasColumnType("bigint");

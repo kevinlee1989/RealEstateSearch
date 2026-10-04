@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 // For My AppDbContext
-using RealEstateSearch.Api.Data;
+using RealEstateSearch.Data;
 // For parsing the data and store to DB
 using RealEstateSearch.Api.SeedData;
 

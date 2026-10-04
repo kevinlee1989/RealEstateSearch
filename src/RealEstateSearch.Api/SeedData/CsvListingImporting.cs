@@ -1,8 +1,8 @@
 using CsvHelper;
 using CsvHelper.Configuration;
 using Microsoft.EntityFrameworkCore;
-using RealEstateSearch.Api.Data;
-using RealEstateSearch.Api.Models;
+using RealEstateSearch.Data;
+using RealEstateSearch.Data.Models;
 using System.Globalization;
 
 namespace RealEstateSearch.Api.SeedData;
