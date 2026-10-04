@@ -2,5 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/RealEstateSearch.Api/RealEstateSearch.Api.csproj" />
     <Project Path="src/RealEstateSearch.Data/RealEstateSearch.Data.csproj" />
+    <Project Path="src/RealEstateSearch.Indexer/RealEstateSearch.Indexer.csproj" />
   </Folder>
 </Solution>

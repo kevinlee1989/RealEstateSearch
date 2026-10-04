@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-RealEstateSearch.Indexer-59676019-8fa1-45dd-a72e-e8366477aefe</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Elastic.Clients.Elasticsearch" Version="9.5.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RealEstateSearch.Data\RealEstateSearch.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Index settings + mappings (no alias; the worker attaches/swaps the alias) -->
+    <EmbeddedResource Include="Elasticsearch\listings-index.json" />
+  </ItemGroup>
+</Project>

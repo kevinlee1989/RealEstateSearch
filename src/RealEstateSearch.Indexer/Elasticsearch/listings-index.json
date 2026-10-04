@@ -1,0 +1,26 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "location":          { "type": "geo_point" },
+      "neighbourhood":     { "type": "keyword" },
+      "roomType":          { "type": "keyword" },
+      "pricePerNight":     { "type": "scaled_float", "scaling_factor": 100 },
+      "accommodates":      { "type": "integer" },
+      "minimumNights":     { "type": "integer" },
+      "updatedAt":         { "type": "date" },
+
+      "name":              { "type": "text",    "index": false },
+      "description":       { "type": "text",    "index": false },
+      "propertyType":      { "type": "keyword", "index": false, "doc_values": false },
+      "bedrooms":          { "type": "integer", "index": false, "doc_values": false },
+      "beds":              { "type": "integer", "index": false, "doc_values": false },
+      "bathrooms":         { "type": "float",   "index": false, "doc_values": false },
+      "reviewScoreRating": { "type": "float",   "index": false, "doc_values": false }
+    }
+  }
+}
