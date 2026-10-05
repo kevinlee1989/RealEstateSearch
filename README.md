@@ -4,7 +4,7 @@ A map-based listing search built on **PostgreSQL as the source of truth** and **
 
 Users pick a location (neighbourhood or map area) and narrow results with a few filter buttons: price, room type, guests, and minimum stay.
 
-> Status: data import and index setup are done. The PostgreSQL → Elasticsearch sync and the search API are in progress (see [Roadmap](#roadmap)).
+> Status: the worker creates the index and copies all searchable listings on startup. Incremental sync and the search API are in progress (see [Roadmap](#roadmap)).
 
 ## Architecture
 
@@ -46,9 +46,12 @@ flowchart LR
     │   └── SeedData/                   #   CSV importer + listings.csv
     └── RealEstateSearch.Indexer/       # Sync worker
         ├── Worker.cs                   #   orchestrates the steps
-        └── Elasticsearch/
-            ├── listings-index.json     #   index settings + mappings
-            └── ListingIndexManager.cs  #   creates index and alias
+        ├── Elasticsearch/
+        │   ├── listings-index.json     #   index settings + mappings
+        │   ├── ListingIndexManager.cs  #   creates index and alias
+        │   └── ListingDocument.cs      #   document shape + "is searchable" rule
+        └── Sync/
+            └── ListingSyncer.cs        #   reads PostgreSQL, sends Bulk requests
 ```
 
 ## Getting Started
@@ -67,9 +70,11 @@ dotnet ef database update \
 # 3. Import listings from CSV (runs once, skipped when data already exists)
 dotnet run --project src/RealEstateSearch.Api
 
-# 4. Create the Elasticsearch index and alias
+# 4. Create the Elasticsearch index and copy searchable listings into it
 dotnet run --project src/RealEstateSearch.Indexer
 ```
+
+The worker logs `Backfill finished: 2660 indexed, ...` when the copy is done; stop it with `Ctrl+C`.
 
 | Service | URL |
 |---|---|
@@ -147,7 +152,9 @@ The alias is not part of the JSON file. If it were, creating `listings_v2` from 
 
 ## Indexer
 
-On startup, `ListingIndexManager.EnsureIndexAsync`:
+`Worker` only decides the order of steps; each step lives in its own class.
+
+### 1. Ensure the index (`ListingIndexManager`)
 
 1. Pings Elasticsearch, retrying with exponential backoff (1s → 16s, up to 2 minutes), because Elasticsearch takes 20–40 seconds to boot and the worker may start first.
 2. Stops if the `listings` alias already exists.
@@ -156,7 +163,26 @@ On startup, `ListingIndexManager.EnsureIndexAsync`:
 
 Running it again does nothing, so it is safe on every startup.
 
-`Worker` only decides the order of steps; each step lives in its own class. `ElasticsearchClient` is a singleton because it is thread-safe and owns the HTTP connection pool.
+### 2. Backfill (`ListingSyncer`)
+
+Copies the whole table on every startup, so the index matches PostgreSQL even after downtime.
+
+| Step | How | Why |
+|---|---|---|
+| Read | 500 rows at a time with `WHERE Id > @lastId ORDER BY Id` | Keyset pagination uses the primary key B-tree; unlike `OFFSET`, later pages are not slower |
+| Decide | Searchable → `index`, otherwise → `delete` | Listings that were sold or lost their price are removed, not left behind |
+| Send | One Bulk request per batch, with `require_alias=true` | If the alias were missing, ES would otherwise auto-create a `listings` index with guessed field types |
+| Check | Inspect every item in the response | Bulk returns HTTP 200 even when some items fail |
+
+A failed document is logged with its ID and reason and the rest continue; a failed request stops the worker. The run ends with a summary such as `2660 indexed, 0 deleted, 340 not searchable and already absent, 0 failed`. Re-running gives the same result because each document is keyed by `_id`.
+
+### Lifetimes
+
+| Service | Lifetime | Reason |
+|---|---|---|
+| `ElasticsearchClient` | Singleton | Thread-safe and owns the HTTP connection pool |
+| `ListingIndexManager`, `ListingSyncer` | Singleton | Stateless |
+| `AppDbContext` | Scoped | Tracks changes and is not thread-safe; the syncer opens a short-lived scope per batch (`IServiceScopeFactory`) instead of holding one for the app's lifetime |
 
 ## Roadmap
 
@@ -165,7 +191,7 @@ Running it again does nothing, so it is safe on every startup.
 - [x] Design the index mapping from the search UI requirements
 - [x] Split shared data access into `RealEstateSearch.Data`
 - [x] Create the index and alias from the worker on startup
-- [ ] Backfill: send all searchable listings with the Bulk API and check per-item errors
+- [x] Backfill: send all searchable listings with the Bulk API and check per-item errors
 - [ ] Incremental sync: poll `UpdatedAt` with an overlap window (late commits) and send `index` or `delete`
 - [ ] Search API: location + filters, returning display fields
 - [ ] Reindex to a new version and swap the alias without downtime
