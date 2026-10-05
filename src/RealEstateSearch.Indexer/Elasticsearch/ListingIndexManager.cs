@@ -71,6 +71,7 @@ public class ListingIndexManager(ElasticsearchClient client, ILogger<ListingInde
         }
     }
 
+    // is alias exists in ES 
     private async Task<bool> AliasExistsAsync(CancellationToken cancellationToken)
     {
         var response = await client.Indices.ExistsAliasAsync(AliasName, cancellationToken);
@@ -116,6 +117,7 @@ public class ListingIndexManager(ElasticsearchClient client, ILogger<ListingInde
         logger.LogInformation("Attached alias {Alias} to {Index}", AliasName, indexName);
     }
 
+    // DLL 안에 
     private static async Task<string> ReadMappingAsync()
     {
         await using var stream = Assembly.GetExecutingAssembly()
