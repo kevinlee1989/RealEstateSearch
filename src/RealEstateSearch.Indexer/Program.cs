@@ -20,6 +20,8 @@ builder.Services.AddSingleton(_ =>
     return new ElasticsearchClient(new ElasticsearchClientSettings(new Uri(url)));
 });
 
+builder.Services.Configure<SyncOptions>(builder.Configuration.GetSection("Sync"));
+
 builder.Services.AddSingleton<ListingIndexManager>();
 builder.Services.AddSingleton<ListingSyncer>();
 builder.Services.AddHostedService<Worker>();

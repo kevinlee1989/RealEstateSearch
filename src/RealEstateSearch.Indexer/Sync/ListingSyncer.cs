@@ -2,6 +2,7 @@ using System.Globalization;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using RealEstateSearch.Data;
 using RealEstateSearch.Data.Models;
 using RealEstateSearch.Indexer.Elasticsearch;
@@ -14,10 +15,69 @@ namespace RealEstateSearch.Indexer.Sync;
 public class ListingSyncer(
     IServiceScopeFactory scopeFactory,
     ElasticsearchClient client,
+    IOptions<SyncOptions> options,
     ILogger<ListingSyncer> logger)
 {
     // Small enough to keep each bulk request well under a few MB
     private const int BatchSize = 500;
+
+    // Latest UpdatedAt in the table (null when empty). Read before the backfill starts,
+    // so rows changed while it runs have a later UpdatedAt and are caught by the first poll.
+    // Comparing UpdatedAt with UpdatedAt avoids trusting this machine's clock.
+    public async Task<DateTime?> GetCheckpointAsync(CancellationToken cancellationToken)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        return await db.Listings.MaxAsync(l => (DateTime?)l.UpdatedAt, cancellationToken);
+    }
+
+    // Sends rows changed since the checkpoint and returns the new checkpoint.
+    // Throws if PostgreSQL or Elasticsearch is unreachable; the caller then keeps the old
+    // checkpoint, so the same range is read again on the next poll.
+    public async Task<DateTime?> SyncChangesAsync(
+        DateTime? checkpoint, CancellationToken cancellationToken)
+    {
+        // Step back by the overlap to catch transactions that committed late.
+        // Rows sent last time are sent again, which is harmless: same _id, same content.
+        var from = (checkpoint ?? DateTime.UnixEpoch) - options.Value.Overlap;
+
+        var total = new SyncResult();
+        var lastUpdatedAt = from;
+        var lastId = long.MaxValue; // first page: plain "UpdatedAt > from" (see ReadChangedBatchAsync)
+        var newCheckpoint = checkpoint;
+
+        while (true)
+        {
+            var batch = await ReadChangedBatchAsync(lastUpdatedAt, lastId, cancellationToken);
+            if (batch.Count == 0)
+            {
+                break;
+            }
+
+            total += await SendAsync(batch, cancellationToken);
+
+            lastUpdatedAt = batch[^1].UpdatedAt;
+            lastId = batch[^1].Id;
+
+            // Rows are ordered by UpdatedAt, so the last row holds the newest value seen.
+            // Max() keeps the checkpoint from moving back when only overlap rows were read.
+            if (newCheckpoint is null || lastUpdatedAt > newCheckpoint)
+            {
+                newCheckpoint = lastUpdatedAt;
+            }
+        }
+
+        if (total.Indexed + total.Deleted + total.AlreadyAbsent + total.Failed > 0)
+        {
+            logger.LogInformation(
+                "Synced changes: {Indexed} indexed, {Deleted} deleted, " +
+                "{AlreadyAbsent} not searchable and already absent, {Failed} failed",
+                total.Indexed, total.Deleted, total.AlreadyAbsent, total.Failed);
+        }
+
+        return newCheckpoint;
+    }
 
     public async Task BackfillAsync(CancellationToken cancellationToken)
     {
@@ -58,6 +118,25 @@ public class ListingSyncer(
             .ToListAsync(cancellationToken);
     }
 
+    // Keyset pagination on (UpdatedAt, Id), served by IX_Listings_UpdatedAt_Id.
+    // UpdatedAt alone is not unique (one save stamps many rows with the same time),
+    // so Id breaks ties; otherwise rows sharing a timestamp across a page boundary are skipped.
+    private async Task<List<Listing>> ReadChangedBatchAsync(
+        DateTime afterUpdatedAt, long afterId, CancellationToken cancellationToken)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        return await db.Listings
+            .AsNoTracking()
+            .Where(l => l.UpdatedAt > afterUpdatedAt
+                     || (l.UpdatedAt == afterUpdatedAt && l.Id > afterId))
+            .OrderBy(l => l.UpdatedAt)
+            .ThenBy(l => l.Id)
+            .Take(BatchSize)
+            .ToListAsync(cancellationToken);
+    }
+
     private async Task<SyncResult> SendAsync(
         IReadOnlyList<Listing> listings, CancellationToken cancellationToken)
     {
@@ -89,7 +168,8 @@ public class ListingSyncer(
 
         var response = await client.BulkAsync(request, cancellationToken);
 
-        // The whole request failed (e.g. ES unreachable): nothing was applied, so stop
+        // The whole request failed (e.g. ES unreachable): nothing was applied, so stop.
+        // Backfill lets this crash the worker; the poll loop catches it and retries.
         if (!response.ApiCallDetails.HasSuccessfulStatusCode)
         {
             throw new InvalidOperationException(

@@ -17,6 +17,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Listing>()
             .Property(l => l.Id)
             .ValueGeneratedNever();
+
+        // The sync worker polls "changed since checkpoint" ordered by (UpdatedAt, Id);
+        // without this B-tree index every poll would scan the whole table
+        modelBuilder.Entity<Listing>()
+            .HasIndex(l => new { l.UpdatedAt, l.Id });
     }
 
     // Set timestamps in one place so every save path (importer, API) keeps
