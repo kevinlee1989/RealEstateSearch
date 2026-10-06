@@ -28,9 +28,16 @@ builder.Services.AddSingleton(_ =>
 });
 builder.Services.AddSingleton<ListingSearchService>();
 
+// The test page (RealEstateSearch.Web) runs on another port, which the browser treats
+// as a different origin; only the origins listed in appsettings may call this API
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options =>
+    options.AddDefaultPolicy(policy => policy.WithOrigins(allowedOrigins).WithMethods("GET")));
+
 var app = builder.Build();
 
 app.UseExceptionHandler();
+app.UseCors();
 
 // Seed PostgreSQL from the CSV on startup (skipped when data already exists).
 // Kept here for the MVP; with several API instances this should become a separate step.

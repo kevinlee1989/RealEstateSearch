@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RealEstateSearch</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    fieldset { margin-bottom: 8px; }
+    #map { height: 360px; margin: 8px 0; }
+    #error { color: #b00020; white-space: pre-line; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>RealEstateSearch</h1>
+
+  <form id="search-form">
+    <fieldset>
+      <legend>Location</legend>
+      <label><input type="radio" name="mode" value="neighbourhood" checked> Neighbourhood</label>
+      <select id="neighbourhood">
+        <option value="">Any</option>
+      </select>
+      <label><input type="radio" name="mode" value="map"> Map area (pan/zoom the map, then search)</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Filters</legend>
+      Price $<input id="minPrice" type="number" min="0" style="width:80px">
+      ~ $<input id="maxPrice" type="number" min="0" style="width:80px">
+
+      Room type
+      <select id="roomType">
+        <option value="">Any</option>
+        <option>Entire home/apt</option>
+        <option>Private room</option>
+        <option>Hotel room</option>
+        <option>Shared room</option>
+      </select>
+
+      Guests <input id="guests" type="number" min="1" style="width:60px">
+
+      Stay
+      <select id="stay">
+        <option value="">Any</option>
+        <option value="short">Short (&lt; 30 nights)</option>
+        <option value="long">Long (30+ nights)</option>
+      </select>
+
+      Sort
+      <select id="sort">
+        <option value="priceAsc">Price: low to high</option>
+        <option value="priceDesc">Price: high to low</option>
+      </select>
+    </fieldset>
+
+    <button type="submit">Search</button>
+  </form>
+
+  <div id="map"></div>
+
+  <p id="error"></p>
+  <p>
+    <strong id="total"></strong>
+    <button id="prev" type="button" disabled>Prev</button>
+    <span id="page-info"></span>
+    <button id="next" type="button" disabled>Next</button>
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Neighbourhood</th><th>Room type</th>
+        <th>Price / night</th><th>Guests</th><th>Min nights</th><th>Rating</th>
+      </tr>
+    </thead>
+    <tbody id="results"></tbody>
+  </table>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
