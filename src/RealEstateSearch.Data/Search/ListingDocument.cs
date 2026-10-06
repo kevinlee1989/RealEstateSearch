@@ -1,8 +1,9 @@
 using RealEstateSearch.Data.Models;
 
-namespace RealEstateSearch.Indexer.Elasticsearch;
+namespace RealEstateSearch.Data.Search;
 
 // Shape of a listing in the search index; property names become camelCase fields.
+// Shared so the Indexer (writes) and the Api (reads) can never disagree on it.
 // The mapping is strict, so this must not carry anything that listings-index.json lacks
 // (e.g. Id, which travels as the document _id instead).
 public record ListingDocument(
@@ -21,6 +22,9 @@ public record ListingDocument(
     double? Bathrooms,
     double? ReviewScoreRating)
 {
+    // Everyone reads and writes through this alias, never a concrete index name like listings_v1
+    public const string IndexAlias = "listings";
+
     // Only bookable listings are searchable; a missing price means "not bookable right now".
     // Everything else stays in PostgreSQL but is removed from the index.
     public static bool IsSearchable(Listing listing) =>

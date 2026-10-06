@@ -4,7 +4,7 @@ A map-based listing search built on **PostgreSQL as the source of truth** and **
 
 Users pick a location (neighbourhood or map area) and narrow results with a few filter buttons: price, room type, guests, and minimum stay.
 
-> Status: the worker creates the index and copies all searchable listings on startup. Incremental sync and the search API are in progress (see [Roadmap](#roadmap)).
+> Status: the write side is done. The worker creates the index, copies all searchable listings on startup, and then keeps Elasticsearch within ~10 seconds of PostgreSQL. The search API is next (see [Roadmap](#roadmap)).
 
 ## Architecture
 
@@ -41,6 +41,7 @@ flowchart LR
     ├── RealEstateSearch.Data/          # Shared data access
     │   ├── AppDbContext.cs             #   sets CreatedAt/UpdatedAt on save
     │   ├── Models/Listing.cs
+    │   ├── Search/ListingDocument.cs   #   index document shape + "is searchable" rule
     │   └── Migrations/
     ├── RealEstateSearch.Api/           # Web API
     │   └── SeedData/                   #   CSV importer + listings.csv
@@ -48,10 +49,10 @@ flowchart LR
         ├── Worker.cs                   #   orchestrates the steps
         ├── Elasticsearch/
         │   ├── listings-index.json     #   index settings + mappings
-        │   ├── ListingIndexManager.cs  #   creates index and alias
-        │   └── ListingDocument.cs      #   document shape + "is searchable" rule
+        │   └── ListingIndexManager.cs  #   creates index and alias
         └── Sync/
-            └── ListingSyncer.cs        #   reads PostgreSQL, sends Bulk requests
+            ├── ListingSyncer.cs        #   backfill + incremental sync via Bulk
+            └── SyncOptions.cs          #   poll interval and overlap window
 ```
 
 ## Getting Started
@@ -74,7 +75,7 @@ dotnet run --project src/RealEstateSearch.Api
 dotnet run --project src/RealEstateSearch.Indexer
 ```
 
-The worker logs `Backfill finished: 2660 indexed, ...` when the copy is done; stop it with `Ctrl+C`.
+The worker logs `Backfill finished: 2660 indexed, ...` when the copy is done, then `Watching for changes every 00:00:10` and keeps running. Stop it with `Ctrl+C`.
 
 | Service | URL |
 |---|---|
@@ -176,12 +177,43 @@ Copies the whole table on every startup, so the index matches PostgreSQL even af
 
 A failed document is logged with its ID and reason and the rest continue; a failed request stops the worker. The run ends with a summary such as `2660 indexed, 0 deleted, 340 not searchable and already absent, 0 failed`. Re-running gives the same result because each document is keyed by `_id`.
 
+### 3. Incremental sync (`ListingSyncer`)
+
+After the backfill, the worker polls for changed rows every 10 seconds and sends them through the same index/delete logic.
+
+```
+checkpoint = MAX(UpdatedAt)          -- taken before the backfill, so changes made during it are not missed
+every 10s:
+    read rows WHERE (UpdatedAt, Id) > (checkpoint - 30s, ...) ORDER BY UpdatedAt, Id, 500 at a time
+    send them with Bulk
+    checkpoint = newest UpdatedAt seen (never moves back)
+```
+
+| Decision | Why |
+|---|---|
+| Checkpoint comes from the data (`MAX(UpdatedAt)`), not the worker's clock | `UpdatedAt` is stamped by whoever writes the row; comparing it with another machine's clock would miss changes when the clocks drift |
+| Re-read a 30s overlap window | A slow transaction can commit *after* a faster one with a later `UpdatedAt` already moved the checkpoint past it. Re-sent rows are harmless: same `_id`, same content |
+| Page by `(UpdatedAt, Id)`, backed by index `IX_Listings_UpdatedAt_Id` | `UpdatedAt` is not unique (one save stamps many rows), so `Id` breaks ties; the B-tree index avoids a full table scan on every poll |
+| `PeriodicTimer` instead of `Task.Delay` | Fixed cadence, and ticks never overlap, so there is still only one writer, in order |
+| On failure, log and keep the checkpoint | A short PostgreSQL or Elasticsearch outage should not kill the worker; the next tick re-reads the same range |
+
+`PollInterval` and `Overlap` are configurable in the `Sync` section of `appsettings.json`.
+
+Verified by changing rows in PostgreSQL while the worker runs: price updates, soft deletes and restores, a price set to `null` and back, a slow transaction overtaken by a faster one, and a 25 second Elasticsearch outage. Each change reached the index within about 10 seconds.
+
+**Known limits**
+
+- `UpdatedAt` is set in `AppDbContext.SaveChangesAsync`, so writes that bypass EF Core (raw SQL) are not detected unless they set it too. A database trigger would close this gap.
+- A hard-deleted row leaves its document in the index, since there is no row left to read. The app only soft deletes; a periodic reconciliation of IDs would catch mistakes.
+- A transaction that commits more than 30 seconds late is missed.
+- The checkpoint lives in memory, so every restart runs a full backfill.
+
 ### Lifetimes
 
 | Service | Lifetime | Reason |
 |---|---|---|
 | `ElasticsearchClient` | Singleton | Thread-safe and owns the HTTP connection pool |
-| `ListingIndexManager`, `ListingSyncer` | Singleton | Stateless |
+| `ListingIndexManager`, `ListingSyncer` | Singleton | Stateless; `Worker` holds the checkpoint and passes it in |
 | `AppDbContext` | Scoped | Tracks changes and is not thread-safe; the syncer opens a short-lived scope per batch (`IServiceScopeFactory`) instead of holding one for the app's lifetime |
 
 ## Roadmap
@@ -192,7 +224,7 @@ A failed document is logged with its ID and reason and the rest continue; a fail
 - [x] Split shared data access into `RealEstateSearch.Data`
 - [x] Create the index and alias from the worker on startup
 - [x] Backfill: send all searchable listings with the Bulk API and check per-item errors
-- [ ] Incremental sync: poll `UpdatedAt` with an overlap window (late commits) and send `index` or `delete`
+- [x] Incremental sync: poll `UpdatedAt` with an overlap window (late commits) and send `index` or `delete`
 - [ ] Search API: location + filters, returning display fields
 - [ ] Reindex to a new version and swap the alias without downtime
 
@@ -201,4 +233,7 @@ A failed document is logged with its ID and reason and the rest continue; a fail
 - Enable Elasticsearch security and use API keys
 - Move secrets to User Secrets or environment variables
 - Persist the sync checkpoint instead of re-syncing on restart
+- Set `UpdatedAt` with a database trigger so raw SQL writes are synced too
+- Reconcile index IDs against PostgreSQL to catch hard deletes
 - Import `amenities` to support filters such as "pool"
+- Automated tests (currently verified by hand)

@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using RealEstateSearch.Data;
 using RealEstateSearch.Data.Models;
-using RealEstateSearch.Indexer.Elasticsearch;
+using RealEstateSearch.Data.Search;
 
 namespace RealEstateSearch.Indexer.Sync;
 
@@ -140,7 +140,7 @@ public class ListingSyncer(
     private async Task<SyncResult> SendAsync(
         IReadOnlyList<Listing> listings, CancellationToken cancellationToken)
     {
-        var request = new BulkRequest(ListingIndexManager.AliasName)
+        var request = new BulkRequest(ListingDocument.IndexAlias)
         {
             // Without this, a missing alias would make ES auto-create a plain "listings" index
             // with guessed field types instead of failing

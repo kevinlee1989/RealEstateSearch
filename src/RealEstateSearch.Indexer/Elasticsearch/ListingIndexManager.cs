@@ -1,6 +1,7 @@
 using System.Reflection;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
+using RealEstateSearch.Data.Search;
 
 namespace RealEstateSearch.Indexer.Elasticsearch;
 
@@ -8,8 +9,7 @@ namespace RealEstateSearch.Indexer.Elasticsearch;
 // Safe to run on every startup: it only creates what is missing.
 public class ListingIndexManager(ElasticsearchClient client, ILogger<ListingIndexManager> logger)
 {
-    // Readers and writers always go through the alias, never a concrete index name
-    public const string AliasName = "listings";
+    private const string AliasName = ListingDocument.IndexAlias;
 
     private const string InitialIndexName = "listings_v1";
     private const string MappingResourceName =
@@ -71,7 +71,7 @@ public class ListingIndexManager(ElasticsearchClient client, ILogger<ListingInde
         }
     }
 
-    // is alias exists in ES 
+    // Does the "listings" alias exist in ES?
     private async Task<bool> AliasExistsAsync(CancellationToken cancellationToken)
     {
         var response = await client.Indices.ExistsAliasAsync(AliasName, cancellationToken);
@@ -117,7 +117,8 @@ public class ListingIndexManager(ElasticsearchClient client, ILogger<ListingInde
         logger.LogInformation("Attached alias {Alias} to {Index}", AliasName, indexName);
     }
 
-    // DLL 안에 
+    // Reads listings-index.json, which is embedded in the DLL at build time,
+    // so it works the same wherever the worker runs
     private static async Task<string> ReadMappingAsync()
     {
         await using var stream = Assembly.GetExecutingAssembly()
