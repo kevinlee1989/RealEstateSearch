@@ -1,6 +1,22 @@
-@RealEstateSearch.Api_HostAddress = http://localhost:5241
+@host = http://localhost:5241
 
-GET {{RealEstateSearch.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Neighbourhoods with listing counts (for the location picker)
+GET {{host}}/api/listings/neighbourhoods
 
-###
+### Everything, cheapest first (first page)
+GET {{host}}/api/listings/search
+
+### Location by neighbourhood
+GET {{host}}/api/listings/search?neighbourhood=La%20Jolla
+
+### Location by map area + all filters (Mission Bay)
+GET {{host}}/api/listings/search?minLat=32.74&maxLat=32.80&minLon=-117.27&maxLon=-117.20&minPrice=100&maxPrice=300&roomType=Entire%20home/apt&guests=4&stay=short
+
+### Monthly stays, most expensive first, second page
+GET {{host}}/api/listings/search?stay=long&sort=priceDesc&page=2&pageSize=10
+
+### Validation error: incomplete map area -> 400
+GET {{host}}/api/listings/search?minLat=32.74&maxLat=32.80
+
+### Validation error: minPrice > maxPrice -> 400
+GET {{host}}/api/listings/search?minPrice=500&maxPrice=100
