@@ -84,11 +84,10 @@ public class ListingSyncer(
         }
     }
 
-    public async Task BackfillAsync(SyncCheckpoint checkpoint, CancellationToken cancellationToken)
+    public async Task BackfillAsync(CancellationToken cancellationToken)
     {
         var total = new SyncResult();
         long lastId = 0;
-        var windowStart = (checkpoint.LastUpdatedAt ?? DateTime.UnixEpoch) - options.Value.Overlap;
 
         while (true)
         {
@@ -100,10 +99,6 @@ public class ListingSyncer(
 
             total += await SendAsync(batch, cancellationToken);
             lastId = batch[^1].Id;
-
-            // The first poll will re-read this window; record what the backfill already sent
-            // so it is not sent twice. The checkpoint itself stays where it was taken.
-            RememberSent(checkpoint, batch.Where(l => l.UpdatedAt > windowStart));
         }
 
         logger.LogInformation(

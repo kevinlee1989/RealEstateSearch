@@ -21,7 +21,7 @@ public class Worker(
 
         // Full copy on every startup: the checkpoint lives in memory,
         // so a restart re-sends everything (cheap at this size, and idempotent)
-        await syncer.BackfillAsync(checkpoint, stoppingToken);
+        await syncer.BackfillAsync(stoppingToken);
 
         var interval = options.Value.PollInterval;
         logger.LogInformation("Watching for changes every {Interval}", interval);
