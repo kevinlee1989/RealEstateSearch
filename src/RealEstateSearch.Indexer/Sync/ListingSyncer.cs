@@ -111,7 +111,7 @@ public class ListingSyncer(
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         return await db.Listings
-            .AsNoTracking()
+            .AsNoTracking() // Not going to fix so no tracking for this db transaction
             .Where(l => l.Id > afterId)
             .OrderBy(l => l.Id)
             .Take(BatchSize)

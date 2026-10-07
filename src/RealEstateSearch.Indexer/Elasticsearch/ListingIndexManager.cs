@@ -15,11 +15,13 @@ public class ListingIndexManager(ElasticsearchClient client, ILogger<ListingInde
     private const string MappingResourceName =
         "RealEstateSearch.Indexer.Elasticsearch.listings-index.json";
 
+    // wait for maximum 2 seconds
     private static readonly TimeSpan MaxWaitForElasticsearch = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(16);
 
     public async Task EnsureIndexAsync(CancellationToken cancellationToken)
     {
+        // wait for ES to activate 
         await WaitForElasticsearchAsync(cancellationToken);
 
         if (await AliasExistsAsync(cancellationToken))
@@ -87,8 +89,10 @@ public class ListingIndexManager(ElasticsearchClient client, ILogger<ListingInde
     // Sends the JSON file as-is so the code creates exactly what was tested in Kibana
     private async Task CreateIndexAsync(string indexName, CancellationToken cancellationToken)
     {
+        // Get listings-index.json
         var body = await ReadMappingAsync();
 
+        // PUT/ listings_v1
         var response = await client.Transport.RequestAsync<StringResponse>(
             Elastic.Transport.HttpMethod.PUT,
             $"/{indexName}",
