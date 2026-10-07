@@ -17,11 +17,11 @@ public class Worker(
         await indexManager.EnsureIndexAsync(stoppingToken);
 
         // Taken before the backfill so nothing changed during it is missed
-        var checkpoint = await syncer.GetCheckpointAsync(stoppingToken);
+        var checkpoint = new SyncCheckpoint(await syncer.GetCheckpointAsync(stoppingToken));
 
         // Full copy on every startup: the checkpoint lives in memory,
         // so a restart re-sends everything (cheap at this size, and idempotent)
-        await syncer.BackfillAsync(stoppingToken);
+        await syncer.BackfillAsync(checkpoint, stoppingToken);
 
         var interval = options.Value.PollInterval;
         logger.LogInformation("Watching for changes every {Interval}", interval);
@@ -33,12 +33,12 @@ public class Worker(
         {
             try
             {
-                checkpoint = await syncer.SyncChangesAsync(checkpoint, stoppingToken);
+                await syncer.SyncChangesAsync(checkpoint, stoppingToken);
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {
-                // A short outage should not kill the worker. The checkpoint is unchanged,
-                // so the same range is read again on the next tick.
+                // A short outage should not kill the worker. The checkpoint only moved for
+                // batches that were sent, so the rest is read again on the next tick.
                 logger.LogWarning(ex, "Sync failed, retrying in {Interval}", interval);
             }
         }

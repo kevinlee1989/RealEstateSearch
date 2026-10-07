@@ -32,20 +32,17 @@ public class ListingSyncer(
         return await db.Listings.MaxAsync(l => (DateTime?)l.UpdatedAt, cancellationToken);
     }
 
-    // Sends rows changed since the checkpoint and returns the new checkpoint.
-    // Throws if PostgreSQL or Elasticsearch is unreachable; the caller then keeps the old
-    // checkpoint, so the same range is read again on the next poll.
-    public async Task<DateTime?> SyncChangesAsync(
-        DateTime? checkpoint, CancellationToken cancellationToken)
+    // Sends rows changed since the checkpoint and moves the checkpoint forward.
+    // Throws if PostgreSQL or Elasticsearch is unreachable. The checkpoint only records
+    // batches that were actually sent, so the next poll re-reads whatever was not.
+    public async Task SyncChangesAsync(SyncCheckpoint checkpoint, CancellationToken cancellationToken)
     {
-        // Step back by the overlap to catch transactions that committed late.
-        // Rows sent last time are sent again, which is harmless: same _id, same content.
-        var from = (checkpoint ?? DateTime.UnixEpoch) - options.Value.Overlap;
+        // Step back by the overlap to catch transactions that committed late
+        var from = (checkpoint.LastUpdatedAt ?? DateTime.UnixEpoch) - options.Value.Overlap;
 
         var total = new SyncResult();
         var lastUpdatedAt = from;
         var lastId = long.MaxValue; // first page: plain "UpdatedAt > from" (see ReadChangedBatchAsync)
-        var newCheckpoint = checkpoint;
 
         while (true)
         {
@@ -55,18 +52,28 @@ public class ListingSyncer(
                 break;
             }
 
-            total += await SendAsync(batch, cancellationToken);
-
             lastUpdatedAt = batch[^1].UpdatedAt;
             lastId = batch[^1].Id;
 
-            // Rows are ordered by UpdatedAt, so the last row holds the newest value seen.
-            // Max() keeps the checkpoint from moving back when only overlap rows were read.
-            if (newCheckpoint is null || lastUpdatedAt > newCheckpoint)
+            // The overlap re-reads rows sent on earlier polls. Skip a row only if this exact
+            // version was sent; a late commit or a row changed again still goes out.
+            var changed = batch.Where(l => !WasSent(checkpoint, l)).ToList();
+            if (changed.Count == 0)
             {
-                newCheckpoint = lastUpdatedAt;
+                continue;
+            }
+
+            total += await SendAsync(changed, cancellationToken);
+            RememberSent(checkpoint, changed);
+
+            // Rows are ordered by UpdatedAt, so the last one is the newest version sent so far
+            if (checkpoint.LastUpdatedAt is null || changed[^1].UpdatedAt > checkpoint.LastUpdatedAt)
+            {
+                checkpoint.LastUpdatedAt = changed[^1].UpdatedAt;
             }
         }
+
+        ForgetOutsideWindow(checkpoint);
 
         if (total.Indexed + total.Deleted + total.AlreadyAbsent + total.Failed > 0)
         {
@@ -75,14 +82,13 @@ public class ListingSyncer(
                 "{AlreadyAbsent} not searchable and already absent, {Failed} failed",
                 total.Indexed, total.Deleted, total.AlreadyAbsent, total.Failed);
         }
-
-        return newCheckpoint;
     }
 
-    public async Task BackfillAsync(CancellationToken cancellationToken)
+    public async Task BackfillAsync(SyncCheckpoint checkpoint, CancellationToken cancellationToken)
     {
         var total = new SyncResult();
         long lastId = 0;
+        var windowStart = (checkpoint.LastUpdatedAt ?? DateTime.UnixEpoch) - options.Value.Overlap;
 
         while (true)
         {
@@ -94,12 +100,43 @@ public class ListingSyncer(
 
             total += await SendAsync(batch, cancellationToken);
             lastId = batch[^1].Id;
+
+            // The first poll will re-read this window; record what the backfill already sent
+            // so it is not sent twice. The checkpoint itself stays where it was taken.
+            RememberSent(checkpoint, batch.Where(l => l.UpdatedAt > windowStart));
         }
 
         logger.LogInformation(
             "Backfill finished: {Indexed} indexed, {Deleted} deleted, " +
             "{AlreadyAbsent} not searchable and already absent, {Failed} failed",
             total.Indexed, total.Deleted, total.AlreadyAbsent, total.Failed);
+    }
+
+    private static bool WasSent(SyncCheckpoint checkpoint, Listing listing) =>
+        checkpoint.SentVersions.TryGetValue(listing.Id, out var sentUpdatedAt)
+        && sentUpdatedAt == listing.UpdatedAt;
+
+    private static void RememberSent(SyncCheckpoint checkpoint, IEnumerable<Listing> listings)
+    {
+        foreach (var listing in listings)
+        {
+            checkpoint.SentVersions[listing.Id] = listing.UpdatedAt;
+        }
+    }
+
+    // Rows at or before the window start are never read again, so their entries can go;
+    // this keeps SentVersions as small as the number of rows changed in the last Overlap
+    private void ForgetOutsideWindow(SyncCheckpoint checkpoint)
+    {
+        var windowStart = (checkpoint.LastUpdatedAt ?? DateTime.UnixEpoch) - options.Value.Overlap;
+
+        foreach (var (id, updatedAt) in checkpoint.SentVersions.ToList())
+        {
+            if (updatedAt <= windowStart)
+            {
+                checkpoint.SentVersions.Remove(id);
+            }
+        }
     }
 
     // Keyset pagination: "Id > last seen" walks the primary key B-tree, so every page is
