@@ -4,6 +4,9 @@ A map-based listing search built with C# and ASP.NET Core, using **PostgreSQL as
 
 Users pick a location (a neighbourhood or the visible map area) and narrow results with a few filters: price, room type, guests, and length of stay.
 
+## demo 
+https://github.com/user-attachments/assets/e7fb7d0c-60f0-4631-899d-72203b6ec50f
+
 ## Architecture
 
 ```mermaid
